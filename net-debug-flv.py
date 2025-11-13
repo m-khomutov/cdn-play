@@ -774,10 +774,16 @@ async def read_video_flv_unit(reader, avc_dumper, tag, packet_type):
             offset+=5
             if (nalu_type & 0x1f) == 6:
                 buf = await read_bytes(reader, sz-1)  # type size timestamp
-                sei=Sei(buf[0:10])
-                print(f'{str(sei)}; diff: {sei.get_diff(sei.timestamp)}')
-                if avc_dumper:
-                    avc_dumper.sei_timestamp=sei.timestamp
+                try:
+                    sei=Sei(buf[0:10])
+                    print(f'{str(sei)}; diff: {sei.get_diff(sei.timestamp)}')
+                    if avc_dumper:
+                        avc_dumper.sei_timestamp = sei.timestamp
+                except:
+                    print('unknown SEI:', end=' ')
+                    for x in buf:
+                        print(f'{hex(x)}', end=' ')
+                    print('')
                 offset+=sz-1
             elif (nalu_type & 0x1f) == 7:
                 buf = await read_bytes(reader, sz-1)  # type size timestamp
@@ -954,8 +960,14 @@ async def read_cdn(reader, buffer, avc_dumper, terminated_flag):
                     avc_dumper.dump(buf)
                     avc_dumper.decode()
             elif (buf[0]&0x1f) == 6:
-                sei=Sei(buf[1:11])
-                print(f'{str(sei)}; diff: {sei.get_diff(sei.timestamp)}')
+                try:
+                    sei=Sei(buf[1:11])
+                    print(f'{str(sei)}; diff: {sei.get_diff(sei.timestamp)}')
+                except:
+                    print('unknown SEI:', end=' ')
+                    for x in buf:
+                        print(f'{hex(x)}', end=' ')
+                    print('')
             elif (buf[0]&0x1f) == 7:
                 if avc_dumper:
                     avc_dumper.dump(buf)
