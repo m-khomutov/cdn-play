@@ -68,6 +68,9 @@ class HashManager:
             pos=kwargs.get('pos', None)
             if pos:
                 control_url=control_url+'&pos='+pos
+            scale=kwargs.get('scale', None)
+            if scale:
+                control_url=control_url+'&scale='+scale
             print(f'command: {control_url}')
             if hashed := self._get_control_url_hash(control_url):
                 hashed='/'+hashed
@@ -407,7 +410,10 @@ class Renderer(threading.Thread):
                     x, y, w, h = cv2.getWindowImageRect(self._caption)
                     self._push_buttons.draw(self._array, (w, h))
                     self._scale_buttons.draw(self._array, (w, h))
-                cv2.imshow(self._caption, self._array)
+                try:
+                    cv2.imshow(self._caption, self._array)
+                except cv2.error as err:
+                    print(f'opencv2 error: {err}')
                 cv2.waitKey(10)
 
     def move_to_timestamp(self, timestamp):
@@ -450,7 +456,7 @@ class Renderer(threading.Thread):
             array = cv2.resize(array, (w, h), interpolation=cv2.INTER_AREA)
         timestamp=self._sei_timestamp if self._sei_timestamp else self._timestamp
         position=self._sei_position if self._sei_position else self._position
-        if self._archive_range[0] and timestamp:
+        if timestamp:
             cv2.putText(array,
                         timestamp,
                         (int(w / 16), int(h / 6)),
@@ -459,6 +465,7 @@ class Renderer(threading.Thread):
                         self._font_color,
                         self._font_thickness,
                         self._line_type)
+        if self._archive_range[0] and timestamp:
             self._slider.draw(array, (w, h), position, self._archive_range, self._hint)
             self._push_buttons.draw(array, (w, h))
             self._scale_buttons.draw(array, (w, h))
@@ -512,12 +519,14 @@ class DumpAvc:
     def __init__(self, **argv):
         self._video_codec=av.CodecContext.create("h264", mode="r")
         self._video_codec.open()
-        self._audio_codec=av.CodecContext.create("aac", mode="r")
-        self._audio_codec.open()
+        self._play_audio=argv.get('audio')
+        self._audio_codec=av.CodecContext.create("aac", mode="r") if self._play_audio else None
         self._audio_specific_config=None
         self._data=b''
         self.sei_timestamp=None
         self._data_queue=queue.Queue()
+        if self._play_audio:
+            self._audio_codec.open()
         self._renderer = Renderer(caption=argv.get('path'),
                                   address=argv.get('address'),
                                   queue=self._data_queue,
@@ -541,15 +550,19 @@ class DumpAvc:
         self._data=b''
 
     def decode_audio(self, is_seq_header, packet):
-        if is_seq_header:
-            self._audio_specific_config=AudioSpecificConfig(packet)
-            self._data_queue.put((False,np.array(packet),None))
-        elif self._audio_specific_config:
-            frames=self._audio_codec.decode(
-                av.packet.Packet(
-                    self._audio_specific_config.generate_adts_header(packet)+packet))
-            for frame in frames:
-                self._data_queue.put((False,frame.to_ndarray(),None))
+        if self._play_audio:
+            if is_seq_header:
+                self._audio_specific_config=AudioSpecificConfig(packet)
+                self._data_queue.put((False,np.array(packet),None))
+            elif self._audio_specific_config:
+                try:
+                    frames=self._audio_codec.decode(
+                        av.packet.Packet(
+                            self._audio_specific_config.generate_adts_header(packet)+packet))
+                    for frame in frames:
+                        self._data_queue.put((False,frame.to_ndarray(),None))
+                except  av.error.InvalidDataError as err:
+                    print(f'audio error: {err}')
 
 
 class Header:
@@ -989,6 +1002,7 @@ async def print_http_headers(**argv):
     dump_avc=DumpAvc(path=path,
                      address=url.scheme+'://'+url.hostname+':'+str(url.port),
                      password=argv.get('password'),
+                     audio=argv.get('audio'),
                      terminated=argv.get('terminated')) if argv.get('visual', False) else None
     try:
         is_flv,buf = await read_http_headers(reader)
@@ -1008,6 +1022,7 @@ if __name__ == '__main__':
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description='flv[cdn] debugger')
     parser.add_argument('url', type=str, help='url to flv[cdn] source')
     parser.add_argument('--visual', action='store_true', help='show parsed frames')
+    parser.add_argument('--audio', action='store_true', help='play audio samples')
     parser.add_argument('--password', type=str, help='password to decode path hash')
     args: argparse.Namespace = parser.parse_args()
 
@@ -1015,6 +1030,7 @@ if __name__ == '__main__':
     try:
         asyncio.run(print_http_headers(url=args.url,
                                        visual=args.visual,
+                                       audio=args.audio,
                                        password=args.password,
                                        terminated=terminated))
     except KeyboardInterrupt:

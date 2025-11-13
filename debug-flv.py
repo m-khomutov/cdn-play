@@ -178,4 +178,7 @@ if __name__ == '__main__':
             except IndexError as e:
                 print(f'end of index on {f.tell()}')
                 break
+            except struct.error as e:
+                print(f'end of index on {f.tell()}')
+                break
 
