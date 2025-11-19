@@ -656,6 +656,14 @@ class CDNHeader:
         return f'archive range({self.start}, {self.end})'
 
 
+class CDNStreamType:
+    def __init__(self, value):
+        self._description=['Unknown','H264','G711','AAC','config','mjpeg']
+        self._value=value
+
+    def __repr__(self):
+        return self._description[self._value] if self._value < len(self._description) else self._description[0]
+
 class CDNStreamHeader:
     size=22
     def __init__(self, buffer):
@@ -665,7 +673,7 @@ class CDNStreamHeader:
          self.st_type) = struct.unpack('<IQQH', buffer) # noqa
 
     def __repr__(self):
-        return f'stream {self.st_type}; ts={self.st_ts}; ats={self.st_ats}'
+        return f'packet {str(CDNStreamType(self.st_type))}; ts={self.st_ts}; ats={self.st_ats}'
 
 
 class Sei:
@@ -935,7 +943,6 @@ async def read_cdn(reader, buffer, avc_dumper, terminated_flag):
             if stream_header.st_type != 1:
                 diff_ts=store_timestamp(ts_timestamp, stream_header.st_type, stream_header.st_ts)
                 diff_ats=store_timestamp(abs_timestamp, stream_header.st_type, stream_header.st_ats)
-                print('audio', end=' ')
                 print(str(stream_header), end='; ')
                 print(f'diff(msec): [ts={diff_ts}; ats={diff_ats}]')
                 continue
@@ -953,7 +960,7 @@ async def read_cdn(reader, buffer, avc_dumper, terminated_flag):
             elif (buf[0] & 0x1f) == 5:
                 diff_ts=store_timestamp(ts_timestamp, stream_header.st_type, stream_header.st_ts)
                 diff_ats=store_timestamp(abs_timestamp, stream_header.st_type, stream_header.st_ats)
-                print('video keyframe', end='   ')
+                print('video keyframe', end='  ')
                 print(str(stream_header), end= '; ')
                 print(f'diff(msec): [ts={diff_ts}; ats={diff_ats}; dt={int(diff_dt)}]')
                 if avc_dumper:
