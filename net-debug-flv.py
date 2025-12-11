@@ -554,15 +554,22 @@ class DumpAvc:
             if is_seq_header:
                 self._audio_specific_config=AudioSpecificConfig(packet)
                 self._data_queue.put((False,np.array(packet),None))
+                print('{', end=' ')
+                for b in packet:
+                    print(f'{hex(b)}', end=' ')
+                print('}', end=' ')
             elif self._audio_specific_config:
                 try:
-                    frames=self._audio_codec.decode(
-                        av.packet.Packet(
-                            self._audio_specific_config.generate_adts_header(packet)+packet))
+                    if not self._with_adts(packet):
+                        packet=self._audio_specific_config.generate_adts_header(packet)+packet
+                    frames=self._audio_codec.decode(av.packet.Packet(packet))
                     for frame in frames:
                         self._data_queue.put((False,frame.to_ndarray(),None))
                 except  av.error.InvalidDataError as err:
                     print(f'audio error: {err}')
+
+    def _with_adts(self, packet):
+        return packet[0]==0xff and (packet[1] & 0xf0)==0xf0
 
 
 class Header:
@@ -847,7 +854,7 @@ async def read_flv(**argv):
                         left_bytes=0
                     else:
                         print(f'{str(a_data)}: ', end='')
-                    print(f'timestamp: {tag.timestamp}; diff(ms): [ts: {diff_ts}]')
+                    print(f'timestamp: {tag.timestamp}; diff(ms): [ts: {diff_ts}] size: {tag.data_size}')
                 timestamp[tag.type] = tag.timestamp
                 if left_bytes:
                     await read_bytes(reader, left_bytes)
