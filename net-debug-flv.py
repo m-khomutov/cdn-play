@@ -93,16 +93,15 @@ class AudioSpecificConfig:
             # 4 bits: frequency index
             # if (frequency index == 15)
             # 24 bits: frequency
-            self.frequency_index = ((int(data[0]) & 3) << 1) | (int(data[1]) >> 7)
+            self.frequency_index = ((int(data[0]) & 7) << 1) | (int(data[1]) >> 7)
             # 4 bits: channel configuration
             self.channel_config = (int(data[1]) >> 3) & 15
 
     def generate_adts_header(self, sample_size):
-        #AAAAAAAA AAAABCCD EEFFFFGH HHIJKLMM MMMMMMMM MMMOOOOO OOOOOOPP
         adts_header=b'\xff\xf1'
         sample_length=len(sample_size)+7
         adts_header=adts_header+((((self.object_type-1) & 3) << 6) | ((self.frequency_index & 15) << 2)).to_bytes(1, 'big')
-        adts_header=adts_header+(0x40 | ((sample_length >> 11) & 3)).to_bytes(1, 'big')
+        adts_header=adts_header+((self.channel_config << 6) | ((sample_length >> 11) & 3)).to_bytes(1, 'big')
         adts_header=adts_header+((sample_length >> 3) & 0xff).to_bytes(1, 'big')
         adts_header=adts_header+(((sample_length & 7) << 5) | 0x1f).to_bytes(1, 'big')
         return adts_header+b'\xfc'
@@ -178,9 +177,11 @@ class ButtonGroup:
     def draw(self, image, image_size):
         raise NotImplementedError("Subclasses must implement this method")
 
-    def _click_on_button(self, click_pos, lt, rb):
+    @staticmethod
+    def click_on_button(click_pos, lt, rb):
         if click_pos[0] >= lt[0] and click_pos[0] <= rb[0]:
             return click_pos[1] >= lt[1] and click_pos[1] <= rb[1]
+        return False
 
 
 class RadioButton:
@@ -233,7 +234,7 @@ class RadioButtonGroup(ButtonGroup):
         for btn in self._buttons:
             btn.toggled=False
             if btn.lt and btn.rb:
-                if self._click_on_button(click_pos,btn.lt,btn.rb):
+                if PushButtonGroup.click_on_button(click_pos,btn.lt,btn.rb):
                     btn.toggled=True
                     caption=btn.caption
         return caption
@@ -266,21 +267,21 @@ class PushButtonGroup(ButtonGroup):
 
     def click_pause_button(self, click_pos):
         if self._pause_button_position:
-            if self._click_on_button(click_pos,self._pause_button_position[0],self._pause_button_position[1]):
+            if PushButtonGroup.click_on_button(click_pos,self._pause_button_position[0],self._pause_button_position[1]):
                 self._pressed_button=PushButton.PAUSE
                 return True
         return False
 
     def click_play_button(self, click_pos):
         if self._play_button_position:
-            if self._click_on_button(click_pos,self._play_button_position[0],self._play_button_position[1]):
+            if PushButtonGroup.click_on_button(click_pos,self._play_button_position[0],self._play_button_position[1]):
                 self._pressed_button=PushButton.PLAY
                 return True
         return False
 
     def click_rplay_button(self, click_pos):
         if self._rplay_button_position:
-            if self._click_on_button(click_pos,self._rplay_button_position[0],self._rplay_button_position[1]):
+            if PushButtonGroup.click_on_button(click_pos,self._rplay_button_position[0],self._rplay_button_position[1]):
                 self._pressed_button=PushButton.REVERSE_PLAY
                 return True
         return False
@@ -371,6 +372,7 @@ class Renderer(threading.Thread):
         self._audio_specific_config=None
         self._pyaudio=None
         self._audio_stream=None
+        self._array=np.zeros((480, 640, 3), dtype=np.uint8)
 
     def __del__(self):
         if self._pyaudio:
@@ -383,7 +385,6 @@ class Renderer(threading.Thread):
         current_datetime = datetime.datetime.now()
         cv2.namedWindow(self._caption, cv2.WINDOW_GUI_NORMAL)
         cv2.setMouseCallback(self._caption, self._on_mouse_event)
-        self._array=np.zeros((480, 640, 3), dtype=np.uint8)
         while not self._terminated_flag.is_set():
             try:
                 if cv2.getWindowProperty(self._caption, cv2.WND_PROP_VISIBLE) < 1:
@@ -479,7 +480,8 @@ class Renderer(threading.Thread):
             self._audio_stream = self._pyaudio.open(format=pyaudio.paFloat32,
                                                     channels=self._audio_specific_config.channel_config,
                                                     rate=self._audio_specific_config.frequency(),
-                                                    output=True)
+                                                    output=True,
+                                                    frames_per_buffer=1024)
         elif self._audio_stream:
             self._audio_stream.write(array.tobytes())
 
@@ -494,7 +496,7 @@ class Renderer(threading.Thread):
             if pos := response.json()['end']:
                 self._archive_range[1] = int(pos)
 
-    def _on_mouse_event(self, event, x, y, flags, param):
+    def _on_mouse_event(self, event, x, y, _, __):
         if event == cv2.EVENT_LBUTTONDOWN:
             _, _, w, h = cv2.getWindowImageRect(self._caption)
             pos = self._slider.calculate_position( (w, h), (x,y), self._archive_range)
@@ -554,21 +556,28 @@ class DumpAvc:
             if is_seq_header:
                 self._audio_specific_config=AudioSpecificConfig(packet)
                 self._data_queue.put((False,np.array(packet),None))
-                print('{', end=' ')
-                for b in packet:
-                    print(f'{hex(b)}', end=' ')
-                print('}', end=' ')
             elif self._audio_specific_config:
                 try:
-                    if not self._with_adts(packet):
+                    if not DumpAvc.with_adts(packet):
                         packet=self._audio_specific_config.generate_adts_header(packet)+packet
+                    for c in packet[0:9]:
+                        print(f'{hex(c)}', end=' ')
+                    print('')
                     frames=self._audio_codec.decode(av.packet.Packet(packet))
                     for frame in frames:
-                        self._data_queue.put((False,frame.to_ndarray(),None))
+                        channels = frame.to_ndarray()
+                        if len(channels) == 2: # стерео надо переложить в interleaved формат
+                            interleaved = np.empty(2*channels[0].size, dtype=channels[0].dtype)
+                            interleaved[0::2]=channels[0]
+                            interleaved[1::2]=channels[1]
+                            self._data_queue.put((False,interleaved,None))
+                        else:
+                            self._data_queue.put((False,channels,None))
                 except  av.error.InvalidDataError as err:
                     print(f'audio error: {err}')
 
-    def _with_adts(self, packet):
+    @staticmethod
+    def with_adts(packet):
         return packet[0]==0xff and (packet[1] & 0xf0)==0xf0
 
 
@@ -849,6 +858,11 @@ async def read_flv(**argv):
                         left_bytes=left_bytes-1
                         print(f'{str(a_data)} {"sequence_header" if aac_packet_type==0 else "raw"}: ', end='')
                         buf=await read_bytes(reader, left_bytes)
+                        if aac_packet_type==0:
+                            print('{', end=' ')
+                            for b in buf:
+                                print(f'{hex(b)}', end=' ')
+                            print('}', end=' ')
                         if avc_dumper:
                             avc_dumper.decode_audio(aac_packet_type==0, buf)
                         left_bytes=0
@@ -1038,7 +1052,7 @@ async def print_http_headers(**argv):
                            terminated=argv.get('terminated'))
         else:
             await read_cdn(reader, buf, dump_avc, argv.get('terminated'))
-    except EOFError as eof:
+    except EOFError:
         pass
     writer.close()
     await writer.wait_closed()
