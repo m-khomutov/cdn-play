@@ -251,7 +251,7 @@ class PushButtonGroup(ButtonGroup):
         super().__init__()
         self._pause_button_position=None
         self._play_button_position=None
-        self._rplay_button_position=None
+        self._reverse_play_button_position=None
         self._pressed_button=PushButton.PLAY
 
     def draw(self, image, image_size):
@@ -261,9 +261,9 @@ class PushButtonGroup(ButtonGroup):
         self._play_button_position=((image_size[0] // 2 + 2*self._half_button_size, image_size[1]-self._offset),
                                     (image_size[0] // 2 + 4*self._half_button_size, image_size[1]-1))
         self._draw_play_button(image)
-        self._rplay_button_position=((image_size[0] // 2 - 4*self._half_button_size, image_size[1] - self._offset),
-                                     (image_size[0] // 2 - 2* self._half_button_size, image_size[1] - 1))
-        self._draw_rplay_button(image)
+        self._reverse_play_button_position=((image_size[0] // 2 - 4*self._half_button_size, image_size[1] - self._offset),
+                                            (image_size[0] // 2 - 2* self._half_button_size, image_size[1] - 1))
+        self._draw_reverse_play_button(image)
 
     def click_pause_button(self, click_pos):
         if self._pause_button_position:
@@ -279,9 +279,9 @@ class PushButtonGroup(ButtonGroup):
                 return True
         return False
 
-    def click_rplay_button(self, click_pos):
-        if self._rplay_button_position:
-            if PushButtonGroup.click_on_button(click_pos,self._rplay_button_position[0],self._rplay_button_position[1]):
+    def click_reverse_play_button(self, click_pos):
+        if self._reverse_play_button_position:
+            if PushButtonGroup.click_on_button(click_pos,self._reverse_play_button_position[0],self._reverse_play_button_position[1]):
                 self._pressed_button=PushButton.REVERSE_PLAY
                 return True
         return False
@@ -320,10 +320,10 @@ class PushButtonGroup(ButtonGroup):
         lb = (left_top[0] + 5, right_bottom[1] - 3)
         cv2.line(image, rm, lb, color, self._thickness * 2)
 
-    def _draw_rplay_button(self, image):
+    def _draw_reverse_play_button(self, image):
         color=self._pressed_color if self._pressed_button == PushButton.REVERSE_PLAY else self._border_color
-        left_top=self._rplay_button_position[0]
-        right_bottom=self._rplay_button_position[1]
+        left_top=self._reverse_play_button_position[0]
+        right_bottom=self._reverse_play_button_position[1]
         # граница
         cv2.rectangle(image, left_top, right_bottom, color, self._thickness)
         # вертикальная
@@ -506,7 +506,7 @@ class Renderer(threading.Thread):
                 self.pause()
             elif self._push_buttons.click_play_button((x,y)):
                 self.play()
-            elif self._push_buttons.click_rplay_button((x,y)):
+            elif self._push_buttons.click_reverse_play_button((x,y)):
                 self.reverse_play()
             else:
                 if scale := self._scale_buttons.click((x,y)):
