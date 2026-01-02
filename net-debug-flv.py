@@ -587,9 +587,11 @@ class Header:
         if chr(buffer[0]) != 'F' or chr(buffer[1]) != 'L' or chr(buffer[2]) != 'V' or buffer[3] != 1:
             raise SyntaxError('Invalid FLV header')
         self.signature = chr(buffer[0])+chr(buffer[1])+chr(buffer[2])
+        self.has_video = buffer[4] & 1
+        self.has_audio = (buffer[4] >> 2) & 1
 
     def __repr__(self):
-        return f'signature: {self.signature}'
+        return f'signature: {self.signature}; flags: [{'video' if self.has_video else ''}{',audio' if self.has_audio else ''}]'
 
 
 class TagSize:
