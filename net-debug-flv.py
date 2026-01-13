@@ -396,6 +396,8 @@ class Renderer(threading.Thread):
             try:
                 video,self._array,sei_timestamp=self._data_queue.get_nowait()
                 if video:
+                    if str(self._array) == 'SHUTDOWN':
+                        break
                     if sei_timestamp:
                         self._sei_position=sei_timestamp//1000
                         self._sei_timestamp=datetime.datetime.fromtimestamp(self._sei_position).strftime("%d-%m-%Y %H:%M:%S")
@@ -411,11 +413,6 @@ class Renderer(threading.Thread):
                     x, y, w, h = cv2.getWindowImageRect(self._caption)
                     self._push_buttons.draw(self._array, (w, h))
                     self._scale_buttons.draw(self._array, (w, h))
-                try:
-                    cv2.imshow(self._caption, self._array)
-                except cv2.error as err:
-                    print(f'opencv2 error: {err}')
-                cv2.waitKey(10)
 
     def move_to_timestamp(self, timestamp):
         self._request_action(action='seek', pos=f'{timestamp}')
@@ -471,7 +468,7 @@ class Renderer(threading.Thread):
             self._push_buttons.draw(array, (w, h))
             self._scale_buttons.draw(array, (w, h))
         cv2.imshow(self._caption, array)
-        cv2.waitKey(10)
+        cv2.waitKey(1)
 
     def _play_packet(self, array):
         if array.dtype != 'float32':
@@ -537,6 +534,7 @@ class DumpAvc:
         self._renderer.start()
 
     def __del__(self):
+        self._data_queue.put((True, 'SHUTDOWN', self.sei_timestamp))
         self._renderer.join()
 
     def dump(self, data):
