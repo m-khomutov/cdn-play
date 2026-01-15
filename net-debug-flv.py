@@ -18,6 +18,7 @@ import struct
 import threading
 import urllib.parse
 
+
 class HashManager:
     def __init__(self, **argv):
         self._set_password_hash(argv.get('password'))
@@ -340,6 +341,12 @@ class PushButtonGroup(ButtonGroup):
         cv2.line(image, lm, rb, color, self._thickness * 2)
 
 
+class QueueMessageType(IntEnum):
+    H264=0,
+    AAC_SEQ_HEADER=1,
+    AAC_RAW=2
+
+
 class Renderer(threading.Thread):
     def __init__(self, **argv):
         super(Renderer, self).__init__()
@@ -372,14 +379,26 @@ class Renderer(threading.Thread):
         self._audio_specific_config=None
         self._pyaudio=None
         self._audio_stream=None
+        self._audio_stream_lock = threading.Lock()
         self._array=np.zeros((480, 640, 3), dtype=np.uint8)
 
     def __del__(self):
         if self._pyaudio:
-            self._audio_stream.stop_stream()
-            self._audio_stream.close()
-            self._pyaudio.terminate()
+            with self._audio_stream_lock:
+                self._audio_stream.stop_stream()
+                self._audio_stream.close()
+                self._pyaudio.terminate()
         cv2.destroyAllWindows()
+
+    def open_audio_stream(self, sequence_header):
+        self._audio_specific_config = AudioSpecificConfig(sequence_header)
+        with self._audio_stream_lock:
+            self._pyaudio = pyaudio.PyAudio()
+            self._audio_stream = self._pyaudio.open(format=pyaudio.paFloat32,
+                                                    channels=self._audio_specific_config.channel_config,
+                                                    rate=self._audio_specific_config.frequency(),
+                                                    output=True,
+                                                    frames_per_buffer=1024)
 
     def run(self):
         current_datetime = datetime.datetime.now()
@@ -394,8 +413,8 @@ class Renderer(threading.Thread):
                 self._terminated_flag.set()
                 break
             try:
-                video,self._array,sei_timestamp=self._data_queue.get_nowait()
-                if video:
+                msg_type,self._array,sei_timestamp=self._data_queue.get_nowait()
+                if msg_type == QueueMessageType.H264:
                     if str(self._array) == 'SHUTDOWN':
                         break
                     if sei_timestamp:
@@ -403,7 +422,7 @@ class Renderer(threading.Thread):
                         self._sei_timestamp=datetime.datetime.fromtimestamp(self._sei_position).strftime("%d-%m-%Y %H:%M:%S")
                     self._draw_frame(self._array)
                 else:
-                    self._play_packet(self._array)
+                    self._play_packet(msg_type, self._array)
                 delta = datetime.datetime.now() - current_datetime
                 if delta.total_seconds() >= 1:
                     current_datetime = datetime.datetime.now()
@@ -470,17 +489,10 @@ class Renderer(threading.Thread):
         cv2.imshow(self._caption, array)
         cv2.waitKey(1)
 
-    def _play_packet(self, array):
-        if array.dtype != 'float32':
-            self._audio_specific_config=AudioSpecificConfig(array.tobytes())
-            self._pyaudio = pyaudio.PyAudio()
-            self._audio_stream = self._pyaudio.open(format=pyaudio.paFloat32,
-                                                    channels=self._audio_specific_config.channel_config,
-                                                    rate=self._audio_specific_config.frequency(),
-                                                    output=True,
-                                                    frames_per_buffer=1024)
-        elif self._audio_stream:
-            self._audio_stream.write(array.tobytes())
+    def _play_packet(self, msg_type, array):
+        with self._audio_stream_lock:
+            if msg_type == QueueMessageType.AAC_RAW and self._audio_stream:
+                self._audio_stream.write(array.tobytes())
 
     def _get_position(self):
         response=self._request_action(action='getpos')
@@ -544,7 +556,7 @@ class DumpAvc:
         try:
             frames=self._video_codec.decode(av.packet.Packet(self._data))
             for frame in frames:
-                self._data_queue.put((True,frame.to_ndarray(format='bgr24'),self.sei_timestamp))
+                self._data_queue.put((QueueMessageType.H264,frame.to_ndarray(format='bgr24'), self.sei_timestamp))
         except av.error.InvalidDataError as err:
             print(err)
         self._data=b''
@@ -553,7 +565,7 @@ class DumpAvc:
         if self._play_audio:
             if is_seq_header:
                 self._audio_specific_config=AudioSpecificConfig(packet)
-                self._data_queue.put((False,np.array(packet),None))
+                self._renderer.open_audio_stream(packet)
             elif self._audio_specific_config:
                 try:
                     if not DumpAvc.with_adts(packet):
@@ -568,10 +580,10 @@ class DumpAvc:
                             interleaved = np.empty(2*channels[0].size, dtype=channels[0].dtype)
                             interleaved[0::2]=channels[0]
                             interleaved[1::2]=channels[1]
-                            self._data_queue.put((False,interleaved,None))
+                            self._data_queue.put((QueueMessageType.AAC_RAW, interleaved, None))
                         else:
-                            self._data_queue.put((False,channels,None))
-                except  av.error.InvalidDataError as err:
+                            self._data_queue.put((QueueMessageType.AAC_RAW, channels, None))
+                except av.error.InvalidDataError as err:
                     print(f'audio error: {err}')
 
     @staticmethod
@@ -857,14 +869,14 @@ async def read_flv(**argv):
                         aac_packet_type=buf[0]
                         left_bytes=left_bytes-1
                         print(f'{str(a_data)} {"sequence_header" if aac_packet_type==0 else "raw"}: ', end='')
-                        buf=await read_bytes(reader, left_bytes)
-                        if aac_packet_type==0:
-                            print('{', end=' ')
-                            for b in buf:
-                                print(f'{hex(b)}', end=' ')
-                            print('}', end=' ')
-                        if avc_dumper:
-                            avc_dumper.decode_audio(aac_packet_type==0, buf)
+                        if buf := await read_bytes(reader, left_bytes):
+                            if aac_packet_type==0:
+                                print('{', end=' ')
+                                for b in buf:
+                                    print(f'{hex(b)}', end=' ')
+                                print('}', end=' ')
+                            if avc_dumper:
+                                avc_dumper.decode_audio(aac_packet_type==0, buf)
                         left_bytes=0
                     else:
                         print(f'{str(a_data)}: ', end='')
