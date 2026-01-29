@@ -7,7 +7,10 @@ class Header:
         self._buffer = f.read(9)
         if chr(self._buffer[0]) != 'F' or chr(self._buffer[1]) != 'L' or chr(self._buffer[2]) != 'V' or self._buffer[3] != 1:
             raise SyntaxError('Invalid FLV header')
-        print(f'signature: {chr(self._buffer[0])}{chr(self._buffer[1])}{chr(self._buffer[2])}')
+        self.signature = chr(self._buffer[0])+chr(self._buffer[1])+chr(self._buffer[2])
+        self.has_video = self._buffer[4] & 1
+        self.has_audio = (self._buffer[4] >> 2) & 1
+        print(f'signature: {self.signature}; flags: [{'video' if self.has_video else ''}{',audio' if self.has_audio else ''}]')
 
     def __bytes__(self):
         return self._buffer
