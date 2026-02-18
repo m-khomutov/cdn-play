@@ -427,7 +427,7 @@ class Renderer(threading.Thread):
                 if delta.total_seconds() >= 1:
                     current_datetime = datetime.datetime.now()
                     self._get_position()
-            except:
+            except Exception:
                 if self._archive_range[0]:
                     x, y, w, h = cv2.getWindowImageRect(self._caption)
                     self._push_buttons.draw(self._array, (w, h))
