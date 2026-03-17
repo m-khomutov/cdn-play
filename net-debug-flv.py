@@ -742,6 +742,56 @@ class Pps:
         return f'pps: {self.data}'
 
 
+class Golomb:
+    def __init__(self, data):
+        self._bits=''
+        self.bits_idx=0
+        for b in data:
+            self._bits+=bin(b)[2:]
+
+    def next(self):
+        res=0
+        idx=self.bits_idx
+        while self._bits[idx] != '1':
+            idx += 1
+        if idx != self.bits_idx:
+            res=int(self._bits[idx:idx+idx], 2)-1
+            self.bits_idx=idx
+        else:
+            self.bits_idx+=1
+        return res
+
+
+class SliceType(IntEnum):
+    P=0,
+    B=1,
+    I=2,
+    SP=3,
+    SI=4
+
+
+
+class AvcSliceHeader:
+    def __init__(self, data):
+        golomb=Golomb(data)
+        self._first_mb_in_slice=golomb.next()
+        slice_type=golomb.next()
+        if slice_type==SliceType.P or slice_type==SliceType.P+5:
+            self._slice_type='P'
+        elif slice_type==SliceType.B or slice_type==SliceType.B+5:
+            self._slice_type='B'
+        elif slice_type==SliceType.I or slice_type==SliceType.I+5:
+            self._slice_type='I'
+        if slice_type==SliceType.SP or slice_type==SliceType.SP+5:
+            self._slice_type='SP'
+        elif slice_type==SliceType.SI or slice_type==SliceType.SI+5:
+            self._slice_type='SI'
+
+    def __str__(self):
+        return f'mb:{self._first_mb_in_slice}; {self._slice_type}-Slice;'
+
+
+
 async def read_bytes(reader, size):
     res = b''
     while len(res) < size:
@@ -801,7 +851,7 @@ async def read_flv_unit(reader, data_size):
     await read_bytes(reader, data_size)
 
 
-async def read_video_flv_unit(reader, avc_dumper, tag, packet_type):
+async def read_video_flv_unit(reader, avc_dumper, tag, packet_type, debug_info):
     offset = AvcPacket.size
     if packet_type == 1:
         while tag.data_size - VideoTag.size - offset > 0:
@@ -812,33 +862,34 @@ async def read_video_flv_unit(reader, avc_dumper, tag, packet_type):
                 buf = await read_bytes(reader, sz-1)  # type size timestamp
                 try:
                     sei=Sei(buf[0:10])
-                    print(f'{str(sei)}; diff: {sei.get_diff(sei.timestamp)}')
+                    debug_info.append(f'\n{str(sei)}; diff: {sei.get_diff(sei.timestamp)}')
                     if avc_dumper:
                         avc_dumper.sei_timestamp = sei.timestamp
-                except:
-                    print('unknown SEI:', end=' ')
+                except Exception:
+                    debug_info.append('\nunknown SEI:')
                     for x in buf:
-                        print(f'{hex(x)}', end=' ')
-                    print('')
+                        debug_info.append(f'{hex(x)} ')
                 offset+=sz-1
             elif (nalu_type & 0x1f) == 7:
                 buf = await read_bytes(reader, sz-1)  # type size timestamp
                 if avc_dumper:
                     avc_dumper.dump(nalu_type.to_bytes(1, 'big')+buf)
-                print(Sps(nalu_type, buf))
+                debug_info.append('\n'+str(Sps(nalu_type, buf)))
                 offset+=sz-1
             elif (nalu_type & 0x1f) == 8:
                 buf = await read_bytes(reader, sz-1)  # type size timestamp
                 if avc_dumper:
                     avc_dumper.dump(nalu_type.to_bytes(1, 'big')+buf)
-                print(Pps(nalu_type, buf))
+                debug_info.append('\n'+str(Pps(nalu_type, buf)))
                 offset+=sz-1
             else:
                 buf = await read_bytes(reader, sz-1)
+                debug_info.insert(1, f'{AvcSliceHeader(buf[:2])}')
                 if avc_dumper:
                     avc_dumper.dump(nalu_type.to_bytes(1, 'big')+buf)
                     avc_dumper.decode()
                 offset+=sz-1
+        print(' '.join(debug_info))
     payload_size = tag.data_size - VideoTag.size - offset
     if payload_size > 0:
         await read_bytes(reader, payload_size)
@@ -896,13 +947,14 @@ async def read_flv(**argv):
             if video_tag.codec_id == 7:
                 avc_packet = await read_flv_avc_packet(reader)
                 packet_type=avc_packet.packet_type
+            debug_info: list = []
             if packet_type == 0:
                 print(f'AVC sequence header; {str(video_tag)}; timestamp: {tag.timestamp}; diff(ms): [ts: {diff_ts}; dt: {int(diff_dt)}]')
             else:
-                print(f'v_frame: {str(video_tag)}; timestamp: {tag.timestamp}; diff(ms): [ts: {diff_ts}; dt: {int(diff_dt)}]')
+                debug_info = [f'v_frame: {str(video_tag)};', f'timestamp: {tag.timestamp};', f'diff(ms): [ts: {diff_ts}; dt: {int(diff_dt)}]']
             timestamp[tag.type] = tag.timestamp
             dt = datetime.datetime.now()
-            await read_video_flv_unit(reader, avc_dumper, tag, packet_type)
+            await read_video_flv_unit(reader, avc_dumper, tag, packet_type, debug_info)
         except EOFError:
             break
 
