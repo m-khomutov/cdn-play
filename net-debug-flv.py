@@ -409,7 +409,7 @@ class Renderer(threading.Thread):
                 if cv2.getWindowProperty(self._caption, cv2.WND_PROP_VISIBLE) < 1:
                     self._terminated_flag.set()
                     break
-            except:
+            except Exception:
                 self._terminated_flag.set()
                 break
             try:
@@ -773,22 +773,32 @@ class SliceType(IntEnum):
 
 class AvcSliceHeader:
     def __init__(self, data):
-        golomb=Golomb(data)
-        self._first_mb_in_slice=golomb.next()
-        slice_type=golomb.next()
-        if slice_type==SliceType.P or slice_type==SliceType.P+5:
-            self._slice_type='P'
-        elif slice_type==SliceType.B or slice_type==SliceType.B+5:
-            self._slice_type='B'
-        elif slice_type==SliceType.I or slice_type==SliceType.I+5:
-            self._slice_type='I'
-        if slice_type==SliceType.SP or slice_type==SliceType.SP+5:
-            self._slice_type='SP'
-        elif slice_type==SliceType.SI or slice_type==SliceType.SI+5:
-            self._slice_type='SI'
+        self._first_mb_in_slice=None
+        self._slice_type=None
+        try:
+            golomb=Golomb(data)
+            self._first_mb_in_slice=golomb.next()
+            slice_type=golomb.next()
+            if slice_type==SliceType.P or slice_type==SliceType.P+5:
+                self._slice_type='P'
+            elif slice_type==SliceType.B or slice_type==SliceType.B+5:
+                self._slice_type='B'
+            elif slice_type==SliceType.I or slice_type==SliceType.I+5:
+                self._slice_type='I'
+            if slice_type==SliceType.SP or slice_type==SliceType.SP+5:
+                self._slice_type='SP'
+            elif slice_type==SliceType.SI or slice_type==SliceType.SI+5:
+                self._slice_type='SI'
+        except IndexError as e:
+            print(f'Error: {e} in header: [', end='')
+            for b in data[:5]:
+                print(f'{hex(b)}', end=' ')
+            print(f'] of {len(data)}')
 
     def __str__(self):
-        return f'mb:{self._first_mb_in_slice}; {self._slice_type}-Slice;'
+        if self._first_mb_in_slice is not None and self._slice_type is not None:
+            return f'mb:{self._first_mb_in_slice}; {self._slice_type}-Slice;'
+        return ''
 
 
 
@@ -884,7 +894,7 @@ async def read_video_flv_unit(reader, avc_dumper, tag, packet_type, debug_info):
                 offset+=sz-1
             else:
                 buf = await read_bytes(reader, sz-1)
-                debug_info.insert(1, f'{AvcSliceHeader(buf[:2])}')
+                debug_info.insert(1, f'{AvcSliceHeader(buf)} sz={sz}')
                 if avc_dumper:
                     avc_dumper.dump(nalu_type.to_bytes(1, 'big')+buf)
                     avc_dumper.decode()
@@ -1055,7 +1065,7 @@ async def read_cdn(reader, buffer, avc_dumper, terminated_flag):
                 try:
                     sei=Sei(buf[1:11])
                     print(f'{str(sei)}; diff: {sei.get_diff(sei.timestamp)}')
-                except:
+                except Exception:
                     print('unknown SEI:', end=' ')
                     for x in buf:
                         print(f'{hex(x)}', end=' ')
