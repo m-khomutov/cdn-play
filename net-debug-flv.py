@@ -1108,7 +1108,7 @@ async def print_http_headers(**argv):
     query = (
         f"GET {path} HTTP/1.0\r\n"
         f"Host: {url.hostname}\r\n"
-        f'User-Agent: {argv.get("user_agent", "Chrome")}'
+        f'User-Agent: {argv.get("user_agent", "Chrome")}\r\n'
         f"\r\n"
     )
     print(query)
