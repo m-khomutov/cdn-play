@@ -1108,6 +1108,7 @@ async def print_http_headers(**argv):
     query = (
         f"GET {path} HTTP/1.0\r\n"
         f"Host: {url.hostname}\r\n"
+        f'User-Agent: {argv.get("user_agent", "Chrome")}'
         f"\r\n"
     )
     print(query)
@@ -1138,11 +1139,13 @@ if __name__ == '__main__':
     parser.add_argument('--visual', action='store_true', help='show parsed frames')
     parser.add_argument('--audio', action='store_true', help='play audio samples')
     parser.add_argument('--password', type=str, help='password to decode path hash')
+    parser.add_argument('--user_agent', type=str, default='Chrome', help='password to decode path hash')
     args: argparse.Namespace = parser.parse_args()
 
     terminated=threading.Event()
     try:
         asyncio.run(print_http_headers(url=args.url,
+                                       user_agent=args.user_agent,
                                        visual=args.visual,
                                        audio=args.audio,
                                        password=args.password,

@@ -10,7 +10,7 @@ class Header:
         self.signature = chr(self._buffer[0])+chr(self._buffer[1])+chr(self._buffer[2])
         self.has_video = self._buffer[4] & 1
         self.has_audio = (self._buffer[4] >> 2) & 1
-        print(f'signature: {self.signature}; flags: [{'video' if self.has_video else ''}{',audio' if self.has_audio else ''}]')
+        print(f"signature: {self.signature}; flags: [{'video' if self.has_video else ''}{',audio' if self.has_audio else ''}]")
 
     def __bytes__(self):
         return self._buffer
@@ -71,6 +71,7 @@ class Sei:
 
 class Tag:
     def __init__(self, file):
+        self._offset = f.tell()
         self._data = f.read(11)
         self.type = int(self._data[0]) # 8, 9, 18
         self.nalu_type = 0
@@ -121,10 +122,10 @@ class Tag:
     def __repr__(self):
         if self.type == 9:
             if self.packet_type == 0:
-                return f'video; type: {self.type}; {self.frame_mode}; size: {self.data_size}; timestamp: {self.timestamp}'
+                return f'video; type: {self.type}; {self.frame_mode}; size: {self.data_size}; timestamp: {self.timestamp}; offset: {self._offset}'
             else:
-                return f'video; type: {self.type}; nalu: {hex(self.nalu_type)} ({self.frame_mode}); size: {self.data_size}; timestamp: {self.timestamp}'
-        return f'type: {self.type}; timestamp: {self.timestamp}'
+                return f'video; type: {self.type}; nalu: {hex(self.nalu_type)} ({self.frame_mode}); size: {self.data_size}; timestamp: {self.timestamp}; offset: {self._offset}'
+        return f'type: {self.type}; timestamp: {self.timestamp}; offset: {self._offset} '
 
     def __bytes__(self):
         return self._data
