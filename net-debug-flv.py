@@ -163,7 +163,7 @@ class Slider:
     def calculate_position(self, image_size, image_position, archive_range):
         if abs(image_position[1]-self._y) < 5:
             coef = (archive_range[1] - archive_range[0]) / (image_size[0] - 2 * self._offset)
-            return int(image_position[0] - self._offset) * coef + archive_range[0]
+            return int((image_position[0] - self._offset) * coef + archive_range[0])
         return None
 
 
@@ -434,7 +434,7 @@ class Renderer(threading.Thread):
                     self._scale_buttons.draw(self._array, (w, h))
 
     def move_to_timestamp(self, timestamp):
-        self._request_action(action='seek', pos=f'{timestamp}')
+        self._request_action(action='abseek', pos=f'{timestamp}')
 
     def scale(self, coefficient):
         self._request_action(action='scale', pos=f'{coefficient}')
