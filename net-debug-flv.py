@@ -601,7 +601,7 @@ class Header:
         self.has_audio = (buffer[4] >> 2) & 1
 
     def __repr__(self):
-        return f'signature: {self.signature}; flags: [{'video' if self.has_video else ''}{',audio' if self.has_audio else ''}]'
+        return f"signature: {self.signature}; flags: [{'video' if self.has_video else ''}{',audio' if self.has_audio else ''}]"
 
 
 class TagSize:
