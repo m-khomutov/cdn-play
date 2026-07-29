@@ -776,7 +776,7 @@ class AvcSliceHeader:
         self._first_mb_in_slice=None
         self._slice_type=None
         try:
-            golomb=Golomb(data)
+            golomb=Golomb(data[:3])
             self._first_mb_in_slice=golomb.next()
             slice_type=golomb.next()
             if slice_type==SliceType.P or slice_type==SliceType.P+5:
