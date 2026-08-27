@@ -33,7 +33,7 @@ class TagSize:
 class Sps:
     def __init__(self, file, nalu_type, sz):
         self.data = ''
-        self._buffer=nalu_type.to_bytes()+file.read(sz)
+        self._buffer=nalu_type.to_bytes(1, 'big')+file.read(sz)
         for x in self._buffer:
             self.data += hex(int(x)) + ' '
 
@@ -47,7 +47,7 @@ class Sps:
 class Pps:
     def __init__(self, file, nalu_type, sz):
         self.data = ''
-        self._buffer=nalu_type.to_bytes()+file.read(sz)
+        self._buffer=nalu_type.to_bytes(1, 'big')+file.read(sz)
         for x in self._buffer:
             self.data += hex(int(x)) + ' '
 
